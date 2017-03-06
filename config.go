@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"strconv"
 	"strings"
@@ -149,8 +150,10 @@ func (cfg *Config) Float64(path string) (float64, error) {
 		return float64(n), nil
 	case string:
 		return strconv.ParseFloat(n, 64)
+	case json.Number:
+		return strconv.ParseFloat(string(n), 64)
 	}
-	return 0, typeMismatch("float64, int or string", n)
+	return 0, typeMismatch("float64, int, json.Number or string", n)
 }
 
 // UFloat64 returns a float64 according to a dotted path or default value or 0.
@@ -165,6 +168,19 @@ func (c *Config) UFloat64(path string, defaults ...float64) float64 {
 		return def
 	}
 	return float64(0)
+}
+
+// Number returns an json.Number according to a dotted path.
+func (cfg *Config) Number(path string) (json.Number, error) {
+	n, err := Get(cfg.Root, path)
+	if err != nil {
+		return "", err
+	}
+	switch n := n.(type) {
+	case json.Number:
+		return n, nil
+	}
+	return "", typeMismatch("json.Number", n)
 }
 
 // Int returns an int according to a dotted path.
@@ -190,8 +206,14 @@ func (cfg *Config) Int(path string) (int, error) {
 		} else {
 			return 0, err
 		}
+	case json.Number:
+		if v, err := strconv.ParseInt(string(n), 10, 0); err == nil {
+			return int(v), nil
+		} else {
+			return 0, err
+		}
 	}
-	return 0, typeMismatch("float64, int or string", n)
+	return 0, typeMismatch("float64, int, json.Number  or string", n)
 }
 
 // UInt returns an int according to a dotted path or default value or 0.
@@ -271,8 +293,10 @@ func (cfg *Config) String(path string) (string, error) {
 		return fmt.Sprint(n), nil
 	case string:
 		return n, nil
+	case json.Number:
+		return string(n), nil
 	}
-	return "", typeMismatch("bool, float64, int or string", n)
+	return "", typeMismatch("bool, float64, int, json.Number  or string", n)
 }
 
 // UString returns a string according to a dotted path or default or "".
@@ -519,7 +543,7 @@ func normalizeValue(value interface{}) (interface{}, error) {
 			node[key] = item
 		}
 		return node, nil
-	case bool, float64, int, string, nil:
+	case bool, float64, int, string, json.Number, nil:
 		return value, nil
 	}
 	return nil, fmt.Errorf("Unsupported type: %T", value)
@@ -548,10 +572,30 @@ func parseJson(cfg []byte) (*Config, error) {
 	if err = json.Unmarshal(cfg, &out); err != nil {
 		return nil, err
 	}
-	if out, err = normalizeValue(out); err != nil {
+	config, err := Process(out)
+
+	return config, err
+}
+
+func ProcessJson(r io.Reader) (*Config, error) {
+	var result interface{}
+	dec := json.NewDecoder(r)
+	dec.UseNumber()
+
+	if err := dec.Decode(&result); err != nil {
 		return nil, err
 	}
-	return &Config{Root: out}, nil
+	config, err := Process(result)
+
+	return config, err
+}
+
+func Process(data interface{}) (*Config, error) {
+	out, err := normalizeValue(data)
+	if err == nil {
+		return &Config{Root: out}, nil
+	}
+	return nil, err
 }
 
 // RenderJson renders a JSON configuration.
@@ -586,10 +630,10 @@ func parseYaml(cfg []byte) (*Config, error) {
 	if err = yaml.Unmarshal(cfg, &out); err != nil {
 		return nil, err
 	}
-	if out, err = normalizeValue(out); err != nil {
-		return nil, err
-	}
-	return &Config{Root: out}, nil
+
+	config, err := Process(out)
+
+	return config, err
 }
 
 // RenderYaml renders a YAML configuration.

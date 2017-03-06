@@ -5,8 +5,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +53,15 @@ messages:
 
     my friend!
 `
+
+var jsonString = `
+{
+    "numbers": {
+        "int": 12345,
+        "long_int": 12345678901234567890,
+        "long_float": 12345678901234567890.0987654321
+    }
+}`
 
 var configTests = []struct {
 	path string
@@ -357,6 +368,49 @@ func TestUMethods(t *testing.T) {
 	expect(t, cfg.UInt("map.undefined", 37), 37)
 	expect(t, cfg.UInt("map.undefined"), 0)
 
+}
+
+func TestNumbers(t *testing.T) {
+	cfg, err := ProcessJson(strings.NewReader(jsonString))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests1 := []struct {
+		key      string
+		expected interface{}
+	}{
+		{"numbers.int", "12345"},
+		{"numbers.long_int", "12345678901234567890"},
+		{"numbers.long_float", "12345678901234567890.0987654321"},
+	}
+
+	for _, test := range tests1 {
+		got1, _ := cfg.Number(test.key)
+		expect(t, fmt.Sprintf("%s", got1), fmt.Sprintf("%s", test.expected))
+	}
+
+	d, err := cfg.Int("numbers.int")
+	if err != nil {
+		t.Errorf("Got err %s, expected none", err)
+	} else {
+		expect(t, d, 12345)
+	}
+
+	_, err2 := cfg.Int("numbers.long_int")
+	if err2 == nil {
+		t.Errorf("Got no err, expected one")
+	}
+
+	ldf, err := cfg.Float64("numbers.long_int")
+	if err != nil {
+		t.Errorf("Got err %s, expected none", err)
+	}
+
+	lf, err := cfg.Float64("numbers.long_float")
+	if err != nil {
+		t.Errorf("Got err %s, expected none", err)
+	}
+	expect(t, fmt.Sprintf("%v", ldf), fmt.Sprintf("%v", lf))
 }
 
 func TestCopy(t *testing.T) {
